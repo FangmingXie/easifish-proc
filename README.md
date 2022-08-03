@@ -1,3 +1,8 @@
+# This is a fork of the original repo below
+
+- for our own easi-fish data-processing purpose.
+
+
 # EASI-FISH analysis toolbox # 
 [![DOI](https://zenodo.org/badge/319982517.svg)](https://zenodo.org/badge/latestdoi/319982517)
 
