@@ -6,7 +6,7 @@ from glob import glob
 from os.path import abspath, dirname
 from skimage.measure import regionprops
 from scipy.spatial import cKDTree
-def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84]):
+def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
     """
     Returns spot counts for each ROI. 
     
@@ -39,7 +39,8 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84]):
                         print('NaN found in {} line# {}'.format(f, i+1))
                     else:
                         if np.any(spot[i,:3]<0) or np.all(np.greater(rounded_spot[i], [x, y, z])):
-                            print('Point outside of fixed image found in {} line# {}'.format(f, i+1))
+                            if verbose:
+                                print('Point outside of fixed image found in {} line# {}'.format(f, i+1))
                         else:
                             try:
                                 # if all non-rounded coord are valid values (none is NaN)
@@ -59,7 +60,7 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84]):
             r = r.split('.')[0]
             spot = np.loadtxt(spot_dir, delimiter=',')
             n = len(spot)
-            rounded_spot = np.round(spot[:, :3]/s).astype('int')
+            riounded_spot = np.round(spot[:, :3]/s).astype('int')
             df = pd.DataFrame(np.zeros([len(lb_id), 1]),
                             index=lb_id, columns=['count'])
 
@@ -111,7 +112,7 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84]):
 def rm_lipofuscin(channel_1, channel_2, radius=0.69):
     """
     
-    Returns real FISH spots in channel 1 and channel2 after removing identified lipofuscin spots.
+    ieturns real FISH spots in channel 1 and channel2 after removing identified lipofuscin spots.
     Autofluorescence lipofuscin spots are identified using two FISH channels. 
     Spots appearing in both channels at the same position are identified as autofluorescence spots. 
     
