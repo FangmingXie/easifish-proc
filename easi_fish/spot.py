@@ -6,6 +6,7 @@ from glob import glob
 from os.path import abspath, dirname
 from skimage.measure import regionprops
 from scipy.spatial import cKDTree
+
 def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
     """
     Returns spot counts for each ROI. 
@@ -60,7 +61,8 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
             r = r.split('.')[0]
             spot = np.loadtxt(spot_dir, delimiter=',')
             n = len(spot)
-            riounded_spot = np.round(spot[:, :3]/s).astype('int')
+            print(n)
+            rounded_spot = np.round(spot[:, :3]/s).astype('int')
             df = pd.DataFrame(np.zeros([len(lb_id), 1]),
                             index=lb_id, columns=['count'])
 
@@ -69,7 +71,9 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
                     print('NaN found in {} line# {}'.format(f, i+1))
                 else:
                     if np.any(spot[i,:3]<0) or np.all(np.greater(rounded_spot[i], [x, y, z])):
-                        print('Point outside of fixed image found in {} line# {}'.format(f, i+1))
+                        if verbose:
+                            print('Point outside of fixed image found in line# {}'.format(i+1))
+                            print(rounded_spot[i], (x,y,z))
                     else:
                         try:
                             # if all non-rounded coord are valid values (none is NaN)
@@ -78,7 +82,7 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
                             if idx > 0 and idx <= len(lb_id):
                                 df.loc[idx, 'count'] = df.loc[idx, 'count']+1
                         except Exception as e:
-                            print('Unexpected error in {} line# {}: {}'.format(f, i+1, e))
+                            print('Unexpected error in line# {}: {}'.format(i+1, e))
             count.loc[:, r] = df.to_numpy()
     else:
         lb_id = np.unique(lb[lb != 0])
@@ -92,10 +96,11 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
 
         for i in range(0, n):
             if np.any(np.isnan(spot[i,:3])):
-                print('NaN found in {} line# {}'.format(f, i+1))
+                print('NaN found in line# {}'.format(i+1))
             else:
                 if np.any(spot[i,:3]<0) or np.all(np.greater(rounded_spot[i], [x, y, z])):
-                    print('Point outside of fixed image found in {} line# {}'.format(f, i+1))
+                    if verbose:
+                        print('Point outside of fixed image found in line# {}'.format(i+1))
                 else:
                     try:
                         # if all non-rounded coord are valid values (none is NaN)
@@ -104,7 +109,7 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
                         if idx > 0 and idx <= len(lb_id):
                             df.loc[idx, 'count'] = df.loc[idx, 'count']+1
                     except Exception as e:
-                        print('Unexpected error in {} line# {}: {}'.format(f, i+1, e))
+                        print('Unexpected error in line# {}: {}'.format(i+1, e))
         count.loc[:, 'spot count'] = df.to_numpy()
 
     return(count)
@@ -112,7 +117,7 @@ def spot_counts(lb, spot_dir, s=[0.92,0.92,0.84], verbose=True):
 def rm_lipofuscin(channel_1, channel_2, radius=0.69):
     """
     
-    ieturns real FISH spots in channel 1 and channel2 after removing identified lipofuscin spots.
+    returns real FISH spots in channel_1 and channel_2 after removing identified lipofuscin spots.
     Autofluorescence lipofuscin spots are identified using two FISH channels. 
     Spots appearing in both channels at the same position are identified as autofluorescence spots. 
     
@@ -155,4 +160,109 @@ def rm_lipofuscin(channel_1, channel_2, radius=0.69):
 
     true_pos_c0 = np.delete(channel_1, pAind, axis=0)
     true_pos_c1 = np.delete(channel_2, pBind, axis=0)
-    return(true_pos_c0, true_pos_c1, pAind, pBind)
+
+    return (true_pos_c0, true_pos_c1, pAind, pBind)
+
+
+def spot_counts_v2(lb, spot_dir, s=[0.92,0.92,0.84], 
+                   verbose=True,
+                   remove_emptymask=True,
+                   ):
+    """
+    Returns spot counts for each ROI. 
+    
+    lb: segmenntation mask (integer 3d image/matrix)
+    spot_dir: Accepts 3 different data types. 
+        a) Folder where extracted spot centroid position is stored for batch processing
+        b) single .txt file for spot extraction in single channel
+        c) numpy arrays with spot info  
+    s: pixel size for segmentation mask, default to 0.92µm in x, y and 0.84µm in z. 
+    
+    """
+    # directory
+    if isinstance(spot_dir, str) and os.path.isdir(spot_dir):
+        lb_id = np.unique(lb[lb!=0]) # exclude 0
+        lb_id = np.hstack([[0], lb_id]) # include 0
+
+        counts_all = pd.DataFrame(index=lb_id)
+        fx = sorted(glob(spot_dir+"/*.txt"))
+        for f in fx:
+            print("Load:", f)
+            r = os.path.basename(f).split('.')[0]
+            spot = np.loadtxt(f, delimiter=',')
+            res = spot_counts_worker(lb, spot, lb_id=lb_id, 
+                                     remove_emptymask=remove_emptymask, 
+                                     verbose=verbose,
+                                     )
+            counts_all[r] = res 
+        
+        if remove_emptymask:
+            counts_all = counts_all.iloc[1:]
+        return counts_all
+
+    # txt file
+    if isinstance(spot_dir, str) and os.path.isfile(spot_dir):
+        print("Load:", spot_dir)
+        r = os.path.basename(f).split('.')[0]
+        spot = np.loadtxt(spot_dir, delimiter=',')
+        res = spot_counts_worker(lb, spot, 
+                                remove_emptymask=remove_emptymask, 
+                                verbose=verbose,
+                                )
+        return res
+
+    # numpy array
+    if isinstance(spot_dir, np.ndarray):
+        res = spot_counts_worker(lb, spot, 
+                                remove_emptymask=remove_emptymask, 
+                                verbose=verbose,
+                                )
+        return res
+
+def spot_counts_worker(lb, spots, s=[0.92,0.92,0.84], 
+                       lb_id=None,
+                       remove_emptymask=True, 
+                       verbose=True,
+                       ):
+    """
+    Returns spot counts for each ROI. 
+    
+    lb: segmenntation mask (integer 3d image/matrix)
+    spots: spots info (numpy array)
+    s: pixel size for segmentation mask, default to 0.92µm in x, y and 0.84µm in z. 
+    
+    """
+    # numpy array
+    z, y, x = lb.shape
+    if lb_id is None:
+        lb_id = np.unique(lb[lb!=0]) # exclude 0
+        lb_id = np.hstack([[0], lb_id]) # include 0
+    res = pd.Series(np.zeros(len(lb_id)), index=lb_id) # counts per roi (including 0) 
+
+    # spot info
+    # remove nan
+    n = len(spots)
+    spot = spots[~np.any(np.isnan(spots[:,:3]), axis=1),:3]
+    if verbose:
+        print(f"removed {n-len(spot)} due to nan")
+
+    # um to pixel
+    spot = np.round(spot[:, :3]/s).astype('int')
+    spot = spot-1  # why???
+
+    # remove outside range
+    spot = spot[~np.any(spot<0, axis=1)]
+    spot = spot[~(spot[:,0]>=x)]
+    spot = spot[~(spot[:,1]>=y)]
+    spot = spot[~(spot[:,2]>=z)]
+    if verbose:
+        print(f"{len(spot):,}/{n:,} spots in range {(x,y,z)}")
+
+    # get index and conut
+    idx = lb[spot[:,2], spot[:,1], spot[:,0]]
+    rois, counts = np.unique(idx, return_counts=True)
+    res.loc[rois] = counts
+
+    if remove_emptymask and lb_id[0] == 0:
+        res = res.iloc[1:] # 0 means not inside any mask
+    return res
