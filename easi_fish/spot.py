@@ -185,16 +185,16 @@ def spot_counts_v2(lb, spot_dir, s=[0.92,0.92,0.84],
         lb_id = np.hstack([[0], lb_id]) # include 0
 
         counts_all = pd.DataFrame(index=lb_id)
-        fx = sorted(glob(spot_dir+"/*.txt"))
+        fx = sorted(glob(spot_dir+"/spots_*.txt"))
         for f in fx:
             print("Load:", f)
-            r = os.path.basename(f).split('.')[0]
+            r_c = os.path.basename(f).split('.')[0]
             spot = np.loadtxt(f, delimiter=',')
             res = spot_counts_worker(lb, spot, lb_id=lb_id, 
                                      remove_emptymask=remove_emptymask, 
                                      verbose=verbose,
                                      )
-            counts_all[r] = res 
+            counts_all[r_c] = res 
         
         if remove_emptymask:
             counts_all = counts_all.iloc[1:]
@@ -266,3 +266,16 @@ def spot_counts_worker(lb, spots, s=[0.92,0.92,0.84],
     if remove_emptymask and lb_id[0] == 0:
         res = res.iloc[1:] # 0 means not inside any mask
     return res
+
+def remove_bleed_thru_spots(ref_dots, query_dots, epsilon=3):
+    """query dots that are within epsilon distance of any ref_dots will be flagged
+    epsilon distance has the unit of query/ref dots, usually in um (post-expansion)
+    """
+    from scipy.spatial import cKDTree
+    index = cKDTree(ref_dots[:,:3])
+    nn_dists, nn_ids = index.query(query_dots[:,:3], k=1)
+    
+    cond = nn_dists < epsilon
+    print(f"{cond.sum()}/{len(cond)} = {100*cond.sum()/len(cond):.1f}% removed")
+
+    return query_dots[~cond], query_dots[cond]
