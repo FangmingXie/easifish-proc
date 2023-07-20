@@ -164,7 +164,7 @@ def rm_lipofuscin(channel_1, channel_2, radius=0.69):
     return (true_pos_c0, true_pos_c1, pAind, pBind)
 
 
-def spot_counts_v2(lb, spot_dir, s=[0.92,0.92,0.84], 
+def spot_counts_v2(lb, spot_dir, s, 
                    verbose=True,
                    remove_emptymask=True,
                    ):
@@ -176,7 +176,8 @@ def spot_counts_v2(lb, spot_dir, s=[0.92,0.92,0.84],
         a) Folder where extracted spot centroid position is stored for batch processing
         b) single .txt file for spot extraction in single channel
         c) numpy arrays with spot info  
-    s: pixel size for segmentation mask, default to 0.92µm in x, y and 0.84µm in z. 
+    s: pixel size for segmentation mask, default to 
+                       s=[0.92,0.92,0.84], 
     
     """
     # directory
@@ -219,17 +220,18 @@ def spot_counts_v2(lb, spot_dir, s=[0.92,0.92,0.84],
                                 )
         return res
 
-def spot_counts_worker(lb, spots, s=[0.92,0.92,0.84], 
+def spot_counts_worker(lb, spots, s, 
                        lb_id=None,
-                       remove_emptymask=True, 
-                       verbose=True,
+                       remove_noncell=True, 
+                       selected_roi_list=None,
                        ):
     """
     Returns spot counts for each ROI. 
     
     lb: segmenntation mask (integer 3d image/matrix)
     spots: spots info (numpy array)
-    s: pixel size for segmentation mask, default to 0.92µm in x, y and 0.84µm in z. 
+    s: pixel size for segmentation mask, default to 
+                       s=[0.92,0.92,0.84], 
     
     """
     # numpy array
@@ -243,28 +245,31 @@ def spot_counts_worker(lb, spots, s=[0.92,0.92,0.84],
     # remove nan
     n = len(spots)
     spot = spots[~np.any(np.isnan(spots[:,:3]), axis=1),:3]
-    if verbose:
-        print(f"removed {n-len(spot)} due to nan")
+    print(f"removed {n-len(spot)} spots due to nan")
 
     # um to pixel
-    spot = np.round(spot[:, :3]/s).astype('int')
-    spot = spot-1  # why???
+    spot = np.round(spot[:,:3]/s).astype('int')
+    spot = spot-1  # why??? shift everything by 1 pixel - should be fine
 
     # remove outside range
     spot = spot[~np.any(spot<0, axis=1)]
     spot = spot[~(spot[:,0]>=x)]
     spot = spot[~(spot[:,1]>=y)]
     spot = spot[~(spot[:,2]>=z)]
-    if verbose:
-        print(f"{len(spot):,}/{n:,} spots in range {(x,y,z)}")
+    print(f"{len(spot):,}/{n:,} spots in range {(x,y,z)}")
 
-    # get index and conut
+    # get index and counts
     idx = lb[spot[:,2], spot[:,1], spot[:,0]]
     rois, counts = np.unique(idx, return_counts=True)
     res.loc[rois] = counts
 
-    if remove_emptymask and lb_id[0] == 0:
+    # remove noncell
+    if remove_noncell and lb_id[0] == 0:
         res = res.iloc[1:] # 0 means not inside any mask
+    
+    # report only those selected cells
+    if selected_roi_list is not None:
+        res = res.loc[selected_roi_list]
     return res
 
 def remove_bleed_thru_spots(ref_dots, query_dots, epsilon=3):
@@ -279,3 +284,44 @@ def remove_bleed_thru_spots(ref_dots, query_dots, epsilon=3):
     print(f"{cond.sum()}/{len(cond)} = {100*cond.sum()/len(cond):.1f}% removed")
 
     return query_dots[~cond], query_dots[cond]
+
+def get_unit_spot_intn(path_spot, vox, xymin=250, xymax=1500, zmin=150, zmax=650):
+    """estimate unit spot intensity
+    
+    vox=[0.92,0.92,0.84]
+    """
+    # (x, y, z, I)
+    spot = np.loadtxt(path_spot, delimiter=',')
+    
+    ## remove spots on edges (eliminate false detection)
+    spot[:,:3]=spot[:,:3]/vox  # convert from um (2x) to pixel unit
+    spot = spot[np.logical_and(spot[:,0]<=xymax, spot[:,0]>xymin)]
+    spot = spot[np.logical_and(spot[:,1]<=xymax, spot[:,1]>xymin)]
+    spot = spot[np.logical_and(spot[:,2]<= zmax, spot[:,2]> zmin)]   
+    
+    ## assign the most frequent intensity as the single-spot-intensity
+    spot_int = spot[:,3]
+    spot_int = spot_int[spot_int!=-8.0] # ???
+    n,b=np.histogram(spot_int, bins=5000)
+    unit_intn = b[np.argmax(n)]
+    
+    return unit_intn
+
+def get_spot_counts_from_intn(path_intn, path_spot, roi_meta, vox):
+    """estimate spot_counts from cell_intensities; estimate unit-spot intensity first
+    """
+    unit_intn = get_unit_spot_intn(path_spot, vox) # get unit intn
+    
+    cell_int = pd.read_csv(path_intn, sep=',', index_col=0)
+    cell_int = cell_int.reindex(roi_meta.index) ## only include intact ROIs###
+
+    vec_mean = cell_int['mean_intensity'].values
+    vec_area = roi_meta['area'].values
+
+    # background - this is to assume most cells do not express this gene
+    n,b = np.histogram(vec_mean, bins=1000)
+    bg = b[np.argmax(n)]    
+    
+    # count
+    vec_count = np.clip(vec_mean - bg, 0, None)*vec_area/unit_intn
+    return vec_count

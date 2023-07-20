@@ -9,7 +9,6 @@ from skimage.measure import regionprops, regionprops_table
 import time
 
 def roi_prop(lb,s=[0.92,0.92,0.84],ex=2):
-
     """
     Returns ROI position, volume, aspect ratio.  
     This function uses the regionprops function implemented in skimage  
@@ -35,13 +34,13 @@ def roi_prop(lb,s=[0.92,0.92,0.84],ex=2):
         
     return df
 
-def roi_prop_v2(lb,s=[0.92,0.92,0.84],ex=2):
+def roi_prop_v2(lb, s, ex):
 
     """
     Returns ROI position, volume, aspect ratio.  
     This function uses the regionprops function implemented in skimage  
     lb: segmentation mask
-    s: pixel size in µm for [x,y,z],default [0.92,0.92,0.84], 
+    s: pixel size in µm for [x,y,z] ~ (s2) [0.92,0.92,0.84], 
     ex: linear expansion factor, default is 2
     """
     s0, s1, s2 = s
